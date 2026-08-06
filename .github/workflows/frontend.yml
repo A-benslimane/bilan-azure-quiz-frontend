@@ -1,0 +1,124 @@
+name: Frontend CI/CD
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  OWNER_TAG: "abdel-benslimane"
+  COMPONENT_TAG: "frontend"
+
+jobs:
+  build-test:
+    name: Build, qualité et sécurité
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Installer Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Vérifier le format
+        run: npm run format:check
+
+      - name: Vérifier le code
+        run: npm run lint
+
+      - name: Compiler le frontend
+        run: npm run build:prod
+
+      - name: Scanner les secrets avec Gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enregistrer le frontend compilé
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/azure-quiz-frontend/browser
+          if-no-files-found: error
+
+  deploy:
+    name: Déploiement Azure
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Télécharger le frontend compilé
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist
+
+      - name: Connexion Azure avec OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Rechercher la Static Web App par tags
+        id: staticwebapp
+        shell: bash
+        run: |
+          STATIC_WEB_APP_NAME=$(az resource list \
+            --tag "owner=${OWNER_TAG}" \
+            --query "[?type=='Microsoft.Web/staticSites' && tags.component=='${COMPONENT_TAG}'].name | [0]" \
+            --output tsv)
+
+          if [ -z "$STATIC_WEB_APP_NAME" ]; then
+            echo "Aucune Static Web App trouvée avec les tags demandés."
+            exit 1
+          fi
+
+          echo "Static Web App trouvée : $STATIC_WEB_APP_NAME"
+          echo "name=$STATIC_WEB_APP_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Récupérer le jeton de déploiement
+        id: token
+        shell: bash
+        run: |
+          DEPLOYMENT_TOKEN=$(az staticwebapp secrets list \
+            --name "${{ steps.staticwebapp.outputs.name }}" \
+            --query "properties.apiKey" \
+            --output tsv)
+
+          if [ -z "$DEPLOYMENT_TOKEN" ]; then
+            echo "Impossible de récupérer le jeton de déploiement."
+            exit 1
+          fi
+
+          echo "::add-mask::$DEPLOYMENT_TOKEN"
+          echo "value=$DEPLOYMENT_TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Déployer le frontend
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.token.outputs.value }}
+          action: "upload"
+          app_location: "frontend-dist"
+          output_location: ""
+          skip_app_build: true
