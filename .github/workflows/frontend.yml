@@ -45,13 +45,69 @@ jobs:
       - name: Vérifier le code
         run: npm run lint
 
-      - name: Compiler le frontend
-        run: npm run build:prod
-
       - name: Scanner les secrets avec Gitleaks
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Connexion Azure avec OIDC
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Préparer la configuration de production
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          BACKEND_NAME=$(az resource list \
+            --tag "owner=${OWNER_TAG}" \
+            --query "[?type=='Microsoft.Web/sites' && tags.component=='backend'].name | [0]" \
+            --output tsv)
+
+          if [ -z "$BACKEND_NAME" ]; then
+            echo "Backend App Service introuvable."
+            exit 1
+          fi
+
+          BACKEND_HOST=$(az webapp show \
+            --name "$BACKEND_NAME" \
+            --resource-group abenslimaneRG \
+            --query defaultHostName \
+            --output tsv)
+
+          if [ -z "$BACKEND_HOST" ]; then
+            echo "Impossible de récupérer l'URL du backend."
+            exit 1
+          fi
+
+          BACKEND_API_KEY=$(az keyvault secret show \
+            --vault-name kv-abenslimane-quiz \
+            --name backend-api-key \
+            --query value \
+            --output tsv)
+
+          if [ -z "$BACKEND_API_KEY" ]; then
+            echo "Secret backend-api-key introuvable."
+            exit 1
+          fi
+
+          echo "::add-mask::$BACKEND_API_KEY"
+
+          sed -i \
+            "s|https://REPLACE_WITH_PROD_API_URL/api|https://${BACKEND_HOST}/api|g" \
+            src/environments/environment.ts
+
+          sed -i \
+            "s|__BACKEND_API_KEY__|${BACKEND_API_KEY}|g" \
+            src/environments/environment.ts
+
+          echo "Configuration frontend de production préparée."
+
+      - name: Compiler le frontend
+        run: npm run build:prod
 
       - name: Enregistrer le frontend compilé
         uses: actions/upload-artifact@v4
