@@ -31,8 +31,17 @@ RUN sed -i "s#https://REPLACE_WITH_PROD_API_URL/api#${API_BASE_URL}#" src/enviro
 RUN npm run build:prod
 
 # ── Runtime stage ────────────────────────────────────────────────────────────
-FROM nginx:1.27-alpine
+# Keep the runtime image current to pick up Alpine/OpenSSL security fixes.
+FROM nginx:1.31.6-alpine3.24
+
+RUN apk upgrade --no-cache
+
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist/azure-quiz-frontend/browser /usr/share/nginx/html
 
-EXPOSE 80
+# Trivy DS-0002: run the runtime container as the unprivileged nginx user.
+# nginx.conf listens on 8080, so no privileged (<1024) port is required.
+RUN chown -R nginx:nginx /var/cache/nginx /var/run /usr/share/nginx/html
+USER nginx
+
+EXPOSE 8080
