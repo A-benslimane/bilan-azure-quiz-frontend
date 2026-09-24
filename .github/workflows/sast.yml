@@ -9,22 +9,24 @@ on:
     branches:
       - main
 
+  workflow_dispatch:
+
 permissions:
   contents: read
 
 jobs:
   sonar:
-    name: Analyse SonarQube
+    name: Analyse SAST SonarQube
     runs-on: ubuntu-latest
 
     steps:
       - name: Récupérer le dépôt
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
       - name: Installer Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: ".nvmrc"
           cache: npm
@@ -32,11 +34,17 @@ jobs:
       - name: Installer les dépendances
         run: npm ci
 
-      - name: Lancer les tests avec couverture
-        run: npm run test:coverage
+      - name: Lancer les tests avec couverture LCOV
+        run: |
+          npm run test:coverage -- \
+            --coverage-reporters=text \
+            --coverage-reporters=lcov
 
-      - name: SonarQube Cloud Scan
-        uses: SonarSource/sonarqube-scan-action@v6
+      - name: Vérifier le rapport LCOV
+        run: test -f coverage/azure-quiz-frontend/lcov.info
+
+      - name: Analyse SonarQube Cloud
+        uses: SonarSource/sonarqube-scan-action@c7ee0f9df90b7aa20e8dcf9695dcfe2e7da5b4f2 # v7
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
@@ -49,7 +57,7 @@ jobs:
             -Dsonar.javascript.lcov.reportPaths=coverage/azure-quiz-frontend/lcov.info
 
       - name: Quality Gate
-        uses: SonarSource/sonarqube-quality-gate-action@v1
+        uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
