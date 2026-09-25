@@ -37,9 +37,8 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          mkdir -p zap-reports
-          sudo chown 1000:1000 zap-reports
-          chmod 700 zap-reports
+          sudo rm -rf zap-reports
+          sudo install -d -o 1000 -g 1000 -m 755 zap-reports
 
           docker run --rm \
             -v "$PWD/zap-reports:/zap/wrk:rw" \
