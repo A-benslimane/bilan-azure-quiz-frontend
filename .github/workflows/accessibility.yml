@@ -56,11 +56,40 @@ jobs:
           cat accessibility-server.log || true
           exit 1
 
+      - name: Installer Chrome for Testing et ChromeDriver correspondants
+        shell: bash
+        run: |
+          npx --yes browser-driver-manager@2.0.1 install chrome
+          cat "$HOME/.browser-driver-manager/.env"
+
       - name: Scanner l'accessibilité avec axe-core
         id: axe
         shell: bash
         run: |
-          npx --yes @axe-core/cli@4.13.0             http://127.0.0.1:8080/             --tags wcag2a,wcag2aa             --load-delay 1000             --chrome-options="no-sandbox,disable-dev-shm-usage"             --save axe-report.json             --exit
+          set -a
+          source "$HOME/.browser-driver-manager/.env"
+          set +a
+
+          if [[ "$CHROME_TEST_PATH" != /* ]]; then
+            CHROME_TEST_PATH="$HOME/$CHROME_TEST_PATH"
+          fi
+
+          if [[ "$CHROMEDRIVER_TEST_PATH" != /* ]]; then
+            CHROMEDRIVER_TEST_PATH="$HOME/$CHROMEDRIVER_TEST_PATH"
+          fi
+
+          "$CHROME_TEST_PATH" --version
+          "$CHROMEDRIVER_TEST_PATH" --version
+
+          npx --yes @axe-core/cli@4.13.0 \
+            http://127.0.0.1:8080/ \
+            --tags wcag2a,wcag2aa \
+            --load-delay 1000 \
+            --chrome-options="no-sandbox,disable-dev-shm-usage" \
+            --chrome-path "$CHROME_TEST_PATH" \
+            --chromedriver-path "$CHROMEDRIVER_TEST_PATH" \
+            --save axe-report.json \
+            --exit
 
       - name: Publier le résumé axe-core
         if: always()
