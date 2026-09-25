@@ -13,12 +13,9 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
-  OWNER_TAG: "abdel-benslimane"
-  COMPONENT_TAG: "frontend"
-  RESOURCE_GROUP: "abenslimaneRG"
+  TARGET_URL: "https://ambitious-flower-025f74c03.5.azurestaticapps.net"
 
 jobs:
   dast:
@@ -29,47 +26,16 @@ jobs:
       - name: Récupérer le dépôt
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - name: Connexion Azure avec OIDC
-        uses: Azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Résoudre l'URL de la Static Web App
-        id: target
+      - name: Vérifier que le frontend est disponible
         shell: bash
         run: |
-          STATIC_WEB_APP_NAME=$(az resource list \
-            --tag "owner=${OWNER_TAG}" \
-            --query "[?type=='Microsoft.Web/staticSites' && tags.component=='${COMPONENT_TAG}'].name | [0]" \
-            --output tsv)
-
-          if [ -z "$STATIC_WEB_APP_NAME" ]; then
-            echo "Aucune Static Web App trouvée."
-            exit 1
-          fi
-
-          HOST=$(az staticwebapp show \
-            --name "$STATIC_WEB_APP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --query defaultHostname \
-            --output tsv)
-
-          if [ -z "$HOST" ]; then
-            echo "Impossible de récupérer le hostname de la Static Web App."
-            exit 1
-          fi
-
-          echo "url=https://$HOST" >> "$GITHUB_OUTPUT"
-          echo "Cible DAST : https://$HOST"
+          curl --fail --silent --show-error --location "$TARGET_URL" > /dev/null
+          echo "Frontend disponible : $TARGET_URL"
 
       - name: Scanner le frontend avec OWASP ZAP
         id: zap
         continue-on-error: true
         shell: bash
-        env:
-          TARGET_URL: ${{ steps.target.outputs.url }}
         run: |
           mkdir -p zap-reports
           sudo chown 1000:1000 zap-reports
@@ -89,7 +55,6 @@ jobs:
         if: always()
         shell: bash
         env:
-          TARGET_URL: ${{ steps.target.outputs.url }}
           ZAP_OUTCOME: ${{ steps.zap.outcome }}
         run: |
           {
@@ -99,7 +64,7 @@ jobs:
             echo
             echo "**Politique :** informative — les alertes DAST doivent être revues avant de devenir bloquantes."
             echo
-            echo "**Résultat du scanner :** `$ZAP_OUTCOME`"
+            echo "**Résultat du scanner :** $ZAP_OUTCOME"
             echo
 
             if [ -s zap-reports/zap-frontend-report.md ]; then
