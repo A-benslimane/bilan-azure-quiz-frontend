@@ -1,0 +1,96 @@
+name: SCA - Dependency Security
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sca-npm:
+    name: SCA - npm audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Installer Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Auditer les dépendances npm
+        id: audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --audit-level=high --json > npm-audit.json
+          AUDIT_EXIT_CODE=$?
+          npm audit --audit-level=high > npm-audit.txt 2>&1
+          set -e
+
+          echo "exit_code=$AUDIT_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Publier le résultat dans le Job Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## SCA — npm audit"
+            echo
+            echo "**Périmètre :** graphe complet des dépendances npm installées"
+            echo
+            echo "**Seuil bloquant :** HIGH / CRITICAL"
+            echo
+
+            node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync("npm-audit.json","utf8")); const v=r.metadata?.vulnerabilities??{}; console.log(`- Low : ${v.low??0}\n- Moderate : ${v.moderate??0}\n- High : ${v.high??0}\n- Critical : ${v.critical??0}\n- Total : ${v.total??0}`)'
+
+            echo
+            echo "### Extrait"
+            echo '```text'
+            sed -n '1,180p' npm-audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enregistrer les rapports npm audit
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sca-npm-audit-report
+          path: |
+            npm-audit.json
+            npm-audit.txt
+          if-no-files-found: error
+
+      - name: Bloquer si des vulnérabilités HIGH ou CRITICAL sont détectées
+        if: steps.audit.outputs.exit_code != '0'
+        run: |
+          echo "Des vulnérabilités HIGH ou CRITICAL ont été détectées par npm audit."
+          exit 1
+
+  dependency-review:
+    name: Dependency Review - PR changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Vérifier les dépendances introduites par la PR
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high

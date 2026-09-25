@@ -1,0 +1,148 @@
+name: Accessibility - axe-core
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  accessibility:
+    name: Accessibility - axe-core WCAG
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Installer Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Compiler le frontend
+        run: npm run build:prod
+
+      - name: Démarrer le frontend local
+        shell: bash
+        run: |
+          nohup npx --yes http-server@14.1.1             dist/azure-quiz-frontend/browser             -p 8080             -c-1 > accessibility-server.log 2>&1 &
+          echo $! > accessibility-server.pid
+
+      - name: Attendre que le frontend soit disponible
+        shell: bash
+        run: |
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8080/ > /dev/null; then
+              echo "Frontend local disponible."
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Le frontend local n'est pas devenu disponible."
+          cat accessibility-server.log || true
+          exit 1
+
+      - name: Installer Chrome for Testing et ChromeDriver correspondants
+        shell: bash
+        run: |
+          npx --yes browser-driver-manager@2.0.1 install chrome
+          cat "$HOME/.browser-driver-manager/.env"
+
+      - name: Scanner l'accessibilité avec axe-core
+        id: axe
+        shell: bash
+        run: |
+          set -a
+          source "$HOME/.browser-driver-manager/.env"
+          set +a
+
+          if [[ "$CHROME_TEST_PATH" != /* ]]; then
+            CHROME_TEST_PATH="$HOME/$CHROME_TEST_PATH"
+          fi
+
+          if [[ "$CHROMEDRIVER_TEST_PATH" != /* ]]; then
+            CHROMEDRIVER_TEST_PATH="$HOME/$CHROMEDRIVER_TEST_PATH"
+          fi
+
+          "$CHROME_TEST_PATH" --version
+          "$CHROMEDRIVER_TEST_PATH" --version
+
+          npx --yes @axe-core/cli@4.13.0 \
+            http://127.0.0.1:8080/ \
+            --tags wcag2a,wcag2aa \
+            --load-delay 1000 \
+            --chrome-options="no-sandbox,disable-dev-shm-usage" \
+            --chrome-path "$CHROME_TEST_PATH" \
+            --chromedriver-path "$CHROMEDRIVER_TEST_PATH" \
+            --save axe-report.json \
+            --exit
+
+      - name: Publier le résumé axe-core
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Accessibility — axe-core"
+            echo
+            echo "**Référentiel :** WCAG 2 A + AA"
+            echo
+            echo "**Politique :** bloquante"
+            echo
+
+            if [ -s axe-report.json ]; then
+              node - <<'NODE'
+          const fs = require("fs");
+          const data = JSON.parse(fs.readFileSync("axe-report.json", "utf8"));
+          const results = Array.isArray(data) ? data : [data];
+          const violations = results.flatMap(r => r.violations ?? []);
+          const incomplete = results.flatMap(r => r.incomplete ?? []);
+          const passes = results.flatMap(r => r.passes ?? []);
+
+          console.log(`- Violations : ${violations.length}`);
+          console.log(`- À vérifier manuellement : ${incomplete.length}`);
+          console.log(`- Règles passées : ${passes.length}`);
+
+          if (violations.length) {
+            console.log("");
+            console.log("### Violations");
+            for (const v of violations.slice(0, 20)) {
+              console.log(`- **${v.id}** [${v.impact ?? "n/a"}] — ${v.help}`);
+            }
+          }
+          NODE
+            else
+              echo "Aucun rapport axe-core généré."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enregistrer le rapport axe-core
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: accessibility-axe-report
+          path: |
+            axe-report.json
+            accessibility-server.log
+          if-no-files-found: warn
+
+      - name: Arrêter le serveur local
+        if: always()
+        shell: bash
+        run: |
+          if [ -f accessibility-server.pid ]; then
+            kill "$(cat accessibility-server.pid)" 2>/dev/null || true
+          fi
