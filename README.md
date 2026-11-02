@@ -1,8 +1,25 @@
-# azure-quiz-frontend
+# Azure Quiz — Frontend Angular & DevSecOps
+
+Application de révision des certifications Microsoft Azure : choix d’une certification, révision par module, examens blancs et consultation des résultats.
+
+**Angular · TypeScript · Angular Material · Vitest · GitHub Actions · Azure Static Web Apps**
+
+## Le projet en bref
+
+- Interface de quiz avec correction et score final, disponible en français et en anglais.
+- Consommation de l’API Spring Boot et gestion de session avec les signals Angular.
+- Tests unitaires, contrôles de format et de qualité, build de production.
+- Contrôles de sécurité et d’accessibilité : SonarQube Cloud, npm audit, Gitleaks, Trivy, OWASP ZAP et axe-core.
+
+Ce dépôt est issu du socle pédagogique Azure Quiz de la formation DevOps Simplon. Les évolutions sont traçables dans les [commits](https://github.com/A-benslimane/bilan-azure-quiz-frontend/commits/main/) et les [pull requests](https://github.com/A-benslimane/bilan-azure-quiz-frontend/pulls?q=is%3Apr+is%3Aclosed). Les résultats de remédiation documentés plus bas correspondent aux analyses réalisées lors de leur mise en place ; les [exécutions GitHub Actions](https://github.com/A-benslimane/bilan-azure-quiz-frontend/actions) permettent d’en consulter le contexte.
+
+[Infrastructure Terraform](https://github.com/A-benslimane/azur-iac-terraform) · [Backend Spring Boot](https://github.com/A-benslimane/bilan-azure-quiz-backend) · [Pipelines et rapports](https://github.com/A-benslimane/bilan-azure-quiz-frontend/actions)
+
+## Documentation technique
 
 Angular application to review Microsoft certifications (AZ-900 to start, AZ-104 next): review by
 module or mock exam, accessible from a simple link (no account). Consumes the REST API of
-[azure-quiz-backend](../azure-quiz-backend).
+[azure-quiz-backend](https://github.com/A-benslimane/bilan-azure-quiz-backend).
 
 
 ## Stack
